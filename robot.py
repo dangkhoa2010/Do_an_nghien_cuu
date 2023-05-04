@@ -3,6 +3,7 @@ import math
 import pyrealsense2 as rs
 import cv2
 from ultralytics import YOLO
+from ultralytics.yolo.utils.plotting import Annotator
 
 
 class AppState:
@@ -139,28 +140,53 @@ def object_detection(image, show=False):
     # Load the YOLOv8 model
     model = YOLO('yolov8n.pt')
 
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
     # Run YOLOv8 inference on the frame
-    results = model(image)
+    results = model.predict(source=image, device='cpu')
 
-    # Visualize the results on the frame
-    annotated_frame = results[0].plot()
-
-    if show:
-        # Display the annotated frame
-        cv2.imshow("YOLOv8 Inference", annotated_frame)
-
-        # Release the video capture object and close the display window
-        cv2.destroyAllWindows()
     box_list = []
     for result in results:
+        # detection
         if len(result):
-            boxes = result[0].boxes
-            box = boxes[0]
-            box_list.append(box.xyxy)
+            boxes = result.boxes
+            for box in boxes:
+                b = box.xyxy[0] # get box coordinates in (top, left, bottom, right) format
+                box_list.append(box.xyxy)
         else:
             print("No results found.")
 
-    print(box_list)
+    if show:
+        model = YOLO('yolov8n.pt')
+        cap = cv2.VideoCapture(1)
+        cap.set(3, 640)
+        cap.set(4, 480)
+
+        while True:
+            _, frame = cap.read()
+
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            results = model.predict(img)
+
+            for r in results:
+
+                annotator = Annotator(frame)
+
+                boxes = r.boxes
+                for box in boxes:
+                    b = box.xyxy[0]  # get box coordinates in (top, left, bottom, right) format
+                    c = box.cls
+                    annotator.box_label(b, model.names[int(c)])
+
+            frame = annotator.result()
+            cv2.imshow('YOLO V8 Detection', frame)
+            if cv2.waitKey(1) & 0xFF == ord(' '):
+                break
+
+        cap.release()
+        cv2.destroyAllWindows()
+
     return box_list
 
 
@@ -188,7 +214,6 @@ def main(show_point=False):
         v, t = points.get_vertices(), points.get_texture_coordinates()
         verts = np.asanyarray(v).view(np.float32).reshape(-1, 3)  # xyz
         texcoords = np.asanyarray(t).view(np.float32).reshape(-1, 2)  # uv
-        print(texcoords)
 
         out.fill(0)
 
@@ -205,7 +230,9 @@ def main(show_point=False):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-        # boxes = object_detection(color_image, show=False)
+        boxes = object_detection(color_image, show=False)
+        print(boxes)
+
         #
         # for box in boxes:
         #     # get coordinates of bounding box
@@ -234,3 +261,7 @@ def main(show_point=False):
 
 if __name__ == '__main__':
     main(show_point=True)
+
+# import torch
+# print(torch.cuda.is_available())
+# print(torch.cuda.device_count())
