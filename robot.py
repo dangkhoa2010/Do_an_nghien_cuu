@@ -4,6 +4,7 @@ import pyrealsense2 as rs
 import cv2
 from ultralytics import YOLO
 from ultralytics.yolo.utils.plotting import Annotator
+import open3d as o3d
 
 
 class AppState:
@@ -93,7 +94,7 @@ def project(v):
     return proj
 
 
-def pointcloud(out, verts, texcoords, color, painter=True):
+def pointcloud(out, verts, texcoords, color, painter=False):
     """draw point cloud with optional painter's algorithm"""
     if painter:
         # Painter's algo, sort points from back to front
@@ -201,38 +202,23 @@ def main(show_point=False):
         depth_frame = decimate.process(depth_frame)
 
         # Grab new intrinsics
-        depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
+        intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
+        extrinsics = profile.get_stream(rs.stream.depth).get_extrinsics_to(profile.get_stream(rs.stream.color))
+        rotation = np.reshape(extrinsics.rotation, (3, 3))
+        translation = np.array(extrinsics.translation)
+
+        extrinsic_matrix = np.eye(4)
+        extrinsic_matrix[:3, :3] = rotation
+        extrinsic_matrix[:3, 3] = translation
+
+        intrinsic_matrix = o3d.camera.PinholeCameraIntrinsic(intrinsics.width, intrinsics.height, intrinsics.fx, intrinsics.fy, intrinsics.ppx, intrinsics.ppy)
+
         w, h = depth_intrinsics.width * 2, depth_intrinsics.height * 2
 
         color_image = np.asanyarray(color_frame.get_data())
         mapped_frame, color_source = color_frame, color_image
 
-        points = pc.calculate(depth_frame)
-        pc.map_to(mapped_frame)
-
-        # Point cloud data to arrays
-        v, t = points.get_vertices(), points.get_texture_coordinates()
-        verts = np.asanyarray(v).view(np.float32).reshape(-1, 3)  # xyz
-        texcoords = np.asanyarray(t).view(np.float32).reshape(-1, 2)  # uv
-
-        out.fill(0)
-
-        tmp = np.zeros((h, w, 3), dtype=np.uint8)
-        pointcloud(tmp, verts, texcoords, color_source)
-        tmp = cv2.resize(tmp, out.shape[:2][::-1], interpolation=cv2.INTER_NEAREST)
-        np.putmask(out, tmp > 0, tmp)
-
-        if show_point:
-            cv2.namedWindow(state.WIN_NAME)
-            cv2.setWindowTitle(state.WIN_NAME, "RealSense")
-            cv2.imshow(state.WIN_NAME, out)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        boxes = object_detection(color_image, show=False)
-        print(boxes)
-
+        # boxes = object_detection(color_image, show=False)
         #
         # for box in boxes:
         #     # get coordinates of bounding box
@@ -240,28 +226,132 @@ def main(show_point=False):
         #     if len(box_vals) == 4:
         #         xmin, ymin, xmax, ymax = box_vals
         #
-        #     # Get all texcoords points within bounding box
-        #     in_box = np.where((texcoords[:, 0] >= xmin) & (texcoords[:, 0] <= xmax) & (texcoords[:, 1] >= ymin) & (texcoords[:, 1] <= ymax))[0]
-        #     print(in_box)
-        #     box_texcoords = texcoords[in_box]
+        #         # box_depth = np.zeros_like(np.asanyarray(depth_frame.get_data()))
+        #         # box_depth[int(ymin):int(ymax), int(xmin):int(xmax)] = np.asanyarray(depth_frame.get_data())[int(ymin):int(ymax), int(xmin):int(xmax)]
         #
-        #     # Mapping texcoords coordinates to 3D . coordinates
-        #     print(box_texcoords[:, 0], box_texcoords[:, 1])
-        #     box_depth_values = depth_frame.as_depth_frame().get_distance(box_texcoords[:, 0], box_texcoords[:, 1])
-        #     box_points = rs.rs2_deproject_pixel_to_point(depth_intrinsics, box_texcoords, box_depth_values)
+        #         pcd = o3d.geometry.PointCloud.create_from_depth_image(
+        #             depth=o3d.geometry.Image(np.asanyarray(depth_frame.get_data())),
+        #             intrinsic=o3d.camera.PinholeCameraIntrinsic(
+        #                 width=depth_intrinsics.width,
+        #                 height=depth_intrinsics.height,
+        #                 fx=depth_intrinsics.fx,
+        #                 fy=depth_intrinsics.fy,
+        #                 cx=depth_intrinsics.ppx,
+        #                 cy=depth_intrinsics.ppy
+        #             )
+        #         )
         #
-        #     # Calculate the average of the points inside the bounding box
-        #     avg_point = np.mean(box_points, axis=0)
+        #         # Hiển thị Point Cloud
+        #         o3d.visualization.draw_geometries([pcd])
+
+        points = pc.calculate(depth_frame)
+        # Lưu point cloud vào file npy
+        points_arr = np.asanyarray(points.get_vertices())
+        np.save('point_cloud.npy', points_arr)
+
+        # # Load point cloud from .npy file
+        # point_cloud = np.load('point_cloud.npy')
+        # print(type(point_cloud))
+
+        # Convert points array to float32
+        point_cloud = np.load('point_cloud.npy', allow_pickle=True)
+        points = point_cloud.view(np.float32).reshape(-1, 3)
+
+        # Create Open3D point cloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)  # Extract x, y, z coordinates
+
+
+        # Visualize point cloud
+        o3d.visualization.draw_geometries([pcd])
+
+        # pc.map_to(mapped_frame)
         #
-        #     print("Average point: ", avg_point)
+        # # Point cloud data to arrays
+        # v, t = points.get_vertices(), points.get_texture_coordinates()
+        # verts = np.asanyarray(v).view(np.float32).reshape(-1, 3)  # xyz
+        # texcoords = np.asanyarray(t).view(np.float32).reshape(-1, 2)  # uv
+        #
+        # out.fill(0)
+        #
+        # tmp = np.zeros((h, w, 3), dtype=np.uint8)
+        # pointcloud(tmp, verts, texcoords, color_source)
+        # tmp = cv2.resize(tmp, out.shape[:2][::-1], interpolation=cv2.INTER_NEAREST)
+        # np.putmask(out, tmp > 0, tmp)
+        #
+        # if show_point:
+        #     cv2.namedWindow(state.WIN_NAME)
+        #     cv2.setWindowTitle(state.WIN_NAME, "RealSense")
+        #     cv2.imshow(state.WIN_NAME, out)
+        #
+        #     if cv2.waitKey(1) & 0xFF == ord('q'):
+        #         break
+
+        # boxes = object_detection(color_image, show=False)
+        #
+        # for box in boxes:
+        #     # get coordinates of bounding box
+        #     box_vals = box[0].squeeze().tolist()
+        #     if len(box_vals) == 4:
+        #         xmin, ymin, xmax, ymax = box_vals
+
+            # # Get all texcoords points within bounding box
+            # in_box = np.where((texcoords[:, 0] >= xmin) & (texcoords[:, 0] <= xmax) & (texcoords[:, 1] >= ymin) & (texcoords[:, 1] <= ymax))[0]
+            # print(in_box)
+            # box_texcoords = texcoords[in_box]
+            #
+            # # Mapping texcoords coordinates to 3D . coordinates
+            # print(box_texcoords[:, 0], box_texcoords[:, 1])
+            # box_depth_values = depth_frame.as_depth_frame().get_distance(box_texcoords[:, 0], box_texcoords[:, 1])
+            # box_points = rs.rs2_deproject_pixel_to_point(depth_intrinsics, box_texcoords, box_depth_values)
+            #
+            # # Calculate the average of the points inside the bounding box
+            # avg_point = np.mean(box_points, axis=0)
+            #
+            # print("Average point: ", avg_point)
 
     # Release resources
     pipeline.stop()
 
 
 if __name__ == '__main__':
-    main(show_point=True)
+    main(show_point=False)
 
 # import torch
 # print(torch.cuda.is_available())
 # print(torch.cuda.device_count())
+
+# import pyrealsense2 as rs
+# import numpy as np
+# import open3d as o3d
+#
+# # Khởi tạo Pipeline và Start Streaming
+# pipeline = rs.pipeline()
+# config = rs.config()
+# config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+# pipeline.start(config)
+#
+# # Lấy dữ liệu Depth và Intrinsics từ Camera
+# frames = pipeline.wait_for_frames()
+# depth_frame = frames.get_depth_frame()
+# depth_intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+#
+# # Convert Depth Frame thành ảnh Depth và tạo Point Cloud từ ảnh Depth
+# depth_image = np.asanyarray(depth_frame.get_data())
+# pcd = o3d.geometry.PointCloud.create_from_depth_image(
+#     depth=o3d.geometry.Image(depth_image),
+#     intrinsic=o3d.camera.PinholeCameraIntrinsic(
+#         width=depth_intrinsics.width,
+#         height=depth_intrinsics.height,
+#         fx=depth_intrinsics.fx,
+#         fy=depth_intrinsics.fy,
+#         cx=depth_intrinsics.ppx,
+#         cy=depth_intrinsics.ppy
+#     )
+# )
+#
+# # Hiển thị Point Cloud
+# o3d.visualization.draw_geometries([pcd])
+#
+# # Stop Pipeline
+# pipeline.stop()
