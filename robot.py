@@ -181,7 +181,7 @@ def main(show_point=False):
 
                 # Create bounding box in point cloud coordinates
                 bbox = o3d.geometry.AxisAlignedBoundingBox(
-                    min_bound=np.array([point_min[0], point_min[1], 0.9*point_min[2]]),
+                    min_bound=np.array([point_min[0], point_min[1], 0.95*point_min[2]]),
                     max_bound=np.array([point_max[0], point_max[1], 0.95*point_max[2]])
                 )
 
@@ -194,20 +194,21 @@ def main(show_point=False):
                 # Average of points in cropped_pc
                 point_cloud_array = np.asarray(cropped_pc.points)
                 mean_point = np.mean(point_cloud_array, axis=0)
+                print(mean_point)
 
-                green_color = [0, 255, 0]  # RGB color code for green
+                black_color = [0, 0, 0]  # RGB color code for black
 
                 # Tạo điểm đám mây từ mean_point
                 mean_point_cloud = o3d.geometry.PointCloud()
                 mean_point_cloud.points = o3d.utility.Vector3dVector([mean_point])
 
                 # Gán màu xanh lá cây cho mean_point
-                mean_point_cloud.paint_uniform_color(green_color)
+                mean_point_cloud.paint_uniform_color(black_color)
 
                 # Thêm điểm trung bình với màu xanh lá cây vào trong cropped_pc
                 mean_point_cloud = o3d.geometry.PointCloud()
                 mean_point_cloud.points = o3d.utility.Vector3dVector([mean_point])
-                mean_point_cloud.colors = o3d.utility.Vector3dVector([green_color])
+                mean_point_cloud.colors = o3d.utility.Vector3dVector([black_color])
                 cropped_pc += mean_point_cloud
 
                 # Hiển thị point cloud đã được cắt và có điểm trung bình được thêm vào với màu xanh lá cây
